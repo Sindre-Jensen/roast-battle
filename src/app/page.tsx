@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getOrCreateUserId } from "@/lib/user-id";
+import { DEFAULT_ELO, getRank } from "@/lib/elo";
+
+const LOCAL_ELO_KEY = "roast-battle-elo";
+const LOCAL_RANK_KEY = "roast-battle-rank";
 
 export default function Home() {
   const [elo, setElo] = useState<number | null>(null);
@@ -19,6 +23,20 @@ export default function Home() {
     }
 
     let cancelled = false;
+    const fallbackEloRaw = window.localStorage.getItem(LOCAL_ELO_KEY);
+    const fallbackElo = fallbackEloRaw ? Number(fallbackEloRaw) : DEFAULT_ELO;
+    if (Number.isFinite(fallbackElo)) {
+      setElo(fallbackElo);
+      setRank(getRank(fallbackElo));
+    } else {
+      setElo(DEFAULT_ELO);
+      setRank(getRank(DEFAULT_ELO));
+    }
+
+    const fallbackRank = window.localStorage.getItem(LOCAL_RANK_KEY);
+    if (fallbackRank) {
+      setRank(fallbackRank);
+    }
 
     async function loadProfile() {
       try {
@@ -28,9 +46,11 @@ export default function Home() {
         if (cancelled) return;
         if (typeof data.elo === "number") {
           setElo(data.elo);
+          window.localStorage.setItem(LOCAL_ELO_KEY, String(data.elo));
         }
         if (typeof data.rank === "string") {
           setRank(data.rank);
+          window.localStorage.setItem(LOCAL_RANK_KEY, data.rank);
         }
       } catch {
         // Keep home page usable even if profile fetch fails.

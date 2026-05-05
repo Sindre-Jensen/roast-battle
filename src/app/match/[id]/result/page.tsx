@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { DEFAULT_ELO, getRank } from "@/lib/elo";
 
 const VIRAL_CAPTIONS = [
   "Aura difference was insane",
@@ -11,6 +12,8 @@ const VIRAL_CAPTIONS = [
   "Chat is still recovering",
   "Absolute demolition",
 ];
+const LOCAL_ELO_KEY = "roast-battle-elo";
+const LOCAL_RANK_KEY = "roast-battle-rank";
 
 function toNumber(value: string | null) {
   if (!value) return null;
@@ -21,6 +24,8 @@ function toNumber(value: string | null) {
 export default function MatchResultPage() {
   const searchParams = useSearchParams();
   const [show, setShow] = useState(false);
+  const [fallbackElo, setFallbackElo] = useState<number>(DEFAULT_ELO);
+  const [fallbackRank, setFallbackRank] = useState<string>(getRank(DEFAULT_ELO));
 
   useEffect(() => {
     const id = window.setTimeout(() => setShow(true), 40);
@@ -30,12 +35,27 @@ export default function MatchResultPage() {
   const didWin = searchParams.get("winner") === "you";
   const heroText = didWin ? "YOU COOKED THEM 🔥" : "YOU GOT COOKED 💀";
 
-  const yourEloBefore = toNumber(searchParams.get("yourEloBefore"));
-  const yourEloAfter = toNumber(searchParams.get("yourEloAfter"));
+  const yourEloBeforeFromQuery = toNumber(searchParams.get("yourEloBefore"));
+  const yourEloAfterFromQuery = toNumber(searchParams.get("yourEloAfter"));
   const opponentEloBefore = toNumber(searchParams.get("opponentEloBefore"));
   const opponentEloAfter = toNumber(searchParams.get("opponentEloAfter"));
-  const yourRank = searchParams.get("yourRank") ?? "NPC";
+  const yourRankFromQuery = searchParams.get("yourRank");
   const opponentRank = searchParams.get("opponentRank") ?? "NPC";
+
+  useEffect(() => {
+    const savedEloRaw = window.localStorage.getItem(LOCAL_ELO_KEY);
+    const savedElo = savedEloRaw ? Number(savedEloRaw) : DEFAULT_ELO;
+    const safeElo = Number.isFinite(savedElo) ? savedElo : DEFAULT_ELO;
+    setFallbackElo(safeElo);
+
+    const savedRank = window.localStorage.getItem(LOCAL_RANK_KEY);
+    setFallbackRank(savedRank || getRank(safeElo));
+  }, []);
+
+  const yourEloAfter = yourEloAfterFromQuery ?? fallbackElo;
+  const yourEloBefore =
+    yourEloBeforeFromQuery ?? (didWin ? Math.max(0, yourEloAfter - 15) : yourEloAfter + 15);
+  const yourRank = yourRankFromQuery ?? fallbackRank;
 
   const caption = useMemo(() => {
     const index = Math.floor(Math.random() * VIRAL_CAPTIONS.length);
@@ -72,7 +92,7 @@ export default function MatchResultPage() {
             <div className="rounded-2xl border border-white/15 bg-black/25 p-4 text-center">
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">You</p>
               <p className="mt-2 text-2xl font-black sm:text-3xl">
-                {yourEloBefore ?? "?"} {"->"} {yourEloAfter ?? "?"}
+                {yourEloBefore} {"->"} {yourEloAfter}
               </p>
               <p
                 className={`mt-2 text-xl font-black ${
@@ -85,7 +105,7 @@ export default function MatchResultPage() {
             <div className="rounded-2xl border border-white/15 bg-black/25 p-4 text-center">
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">Opponent</p>
               <p className="mt-2 text-2xl font-black sm:text-3xl">
-                {opponentEloBefore ?? "?"} {"->"} {opponentEloAfter ?? "?"}
+                {opponentEloBefore ?? "N/A"} {"->"} {opponentEloAfter ?? "N/A"}
               </p>
               <p
                 className={`mt-2 text-xl font-black ${
@@ -102,7 +122,7 @@ export default function MatchResultPage() {
           <div className="rounded-2xl border border-white/15 bg-black/25 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">You</p>
             <p className="mt-2 text-3xl font-black text-zinc-100">
-              {yourEloAfter ?? "?"}
+              {yourEloAfter}
             </p>
             <p className="mt-1 text-sm uppercase tracking-[0.18em] text-zinc-300">
               {yourRank}
@@ -111,7 +131,7 @@ export default function MatchResultPage() {
           <div className="rounded-2xl border border-white/15 bg-black/25 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">Opponent</p>
             <p className="mt-2 text-3xl font-black text-zinc-100">
-              {opponentEloAfter ?? "?"}
+              {opponentEloAfter ?? "N/A"}
             </p>
             <p className="mt-1 text-sm uppercase tracking-[0.18em] text-zinc-300">
               {opponentRank}

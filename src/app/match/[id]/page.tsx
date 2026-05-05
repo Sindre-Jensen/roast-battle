@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getOrCreateUserId } from "@/lib/user-id";
+import { DEFAULT_ELO, getNewElo } from "@/lib/elo";
 
 type MatchRow = {
   id: string;
@@ -21,6 +22,8 @@ type SignalPayload = {
 
 const ROUND_SECONDS = 30;
 const TOTAL_SECONDS = ROUND_SECONDS * 2;
+const LOCAL_ELO_KEY = "roast-battle-elo";
+const LOCAL_RANK_KEY = "roast-battle-rank";
 
 export default function MatchPage() {
   const params = useParams<{ id: string }>();
@@ -180,9 +183,33 @@ export default function MatchPage() {
           opponentRank: opponentRank ?? "",
         });
 
+        if (typeof yourEloAfter === "number") {
+          window.localStorage.setItem(LOCAL_ELO_KEY, String(yourEloAfter));
+        }
+        if (yourRank) {
+          window.localStorage.setItem(LOCAL_RANK_KEY, yourRank);
+        }
+
         router.replace(`/match/${params.id}/result?${query.toString()}`);
       } catch {
-        router.replace(`/match/${params.id}/result?winner=${winnerPerspective}`);
+        const savedEloRaw = window.localStorage.getItem(LOCAL_ELO_KEY);
+        const savedElo = savedEloRaw ? Number(savedEloRaw) : DEFAULT_ELO;
+        const safeCurrentElo = Number.isFinite(savedElo) ? savedElo : DEFAULT_ELO;
+        const fallbackYourAfter = getNewElo(safeCurrentElo, winnerPerspective === "you");
+        const fallbackYourBefore =
+          winnerPerspective === "you"
+            ? Math.max(0, fallbackYourAfter - 15)
+            : fallbackYourAfter + 15;
+
+        window.localStorage.setItem(LOCAL_ELO_KEY, String(fallbackYourAfter));
+
+        const fallbackQuery = new URLSearchParams({
+          winner: winnerPerspective,
+          yourEloBefore: String(fallbackYourBefore),
+          yourEloAfter: String(fallbackYourAfter),
+        });
+
+        router.replace(`/match/${params.id}/result?${fallbackQuery.toString()}`);
       }
     })();
   }, [params.id, router, teardownConnection, userId]);
@@ -372,6 +399,13 @@ export default function MatchPage() {
     };
   }, [endBattle]);
 
+  const isMyTurn = currentSpeaker === "you";
+  const turnSecondsRemaining = timer > ROUND_SECONDS ? timer - ROUND_SECONDS : timer;
+  const turnProgress = Math.max(
+    0,
+    Math.min(100, ((ROUND_SECONDS - turnSecondsRemaining) / ROUND_SECONDS) * 100)
+  );
+
   return (
     <main className="arena-bg min-h-screen px-2 py-4 text-zinc-100 md:px-4">
       <div className="mx-auto w-full max-w-[1500px]">
@@ -395,28 +429,56 @@ export default function MatchPage() {
           </p>
         </div>
 
-        <div className="relative grid gap-3 md:grid-cols-2 md:gap-4">
-          <section className="arena-card relative overflow-hidden rounded-3xl p-2 md:p-3">
+        <div
+          className={`relative grid gap-3 md:gap-4 ${
+            isMyTurn
+              ? "md:[grid-template-columns:1.25fr_0.75fr]"
+              : "md:[grid-template-columns:0.75fr_1.25fr]"
+          }`}
+        >
+          <section
+            className={`arena-card relative overflow-hidden rounded-3xl p-2 md:p-3 transition-all duration-300 ${
+              isMyTurn ? "ring-2 ring-lime-300/70" : "opacity-90"
+            }`}
+          >
             <div className="pointer-events-none absolute left-3 top-3 z-20 rounded-lg border border-white/20 bg-black/45 px-3 py-2 text-[10px] uppercase tracking-[0.15em] text-zinc-200 backdrop-blur">
               Your cam
             </div>
+            {!isMyTurn && (
+              <div className="pointer-events-none absolute left-3 top-14 z-20 rounded-md border border-rose-300/50 bg-black/55 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-rose-200">
+                Mic muted
+              </div>
+            )}
             <video
               ref={localVideoRef}
               autoPlay
               muted
               playsInline
-              className="h-[42vh] min-h-[300px] w-full rounded-2xl border border-white/10 bg-black object-cover md:h-[68vh]"
+              className={`w-full rounded-2xl border border-white/10 bg-black object-cover transition-all duration-300 ${
+                isMyTurn ? "h-[56vh] min-h-[340px] md:h-[70vh]" : "h-[36vh] min-h-[240px] md:h-[52vh]"
+              }`}
             />
           </section>
-          <section className="arena-card relative overflow-hidden rounded-3xl p-2 md:p-3">
+          <section
+            className={`arena-card relative overflow-hidden rounded-3xl p-2 md:p-3 transition-all duration-300 ${
+              !isMyTurn ? "ring-2 ring-lime-300/70" : "opacity-90"
+            }`}
+          >
             <div className="pointer-events-none absolute right-3 top-3 z-20 rounded-lg border border-white/20 bg-black/45 px-3 py-2 text-[10px] uppercase tracking-[0.15em] text-zinc-200 backdrop-blur">
               Opponent cam
             </div>
+            {isMyTurn && (
+              <div className="pointer-events-none absolute right-3 top-14 z-20 rounded-md border border-rose-300/50 bg-black/55 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-rose-200">
+                Opp muted
+              </div>
+            )}
             <video
               ref={remoteVideoRef}
               autoPlay
               playsInline
-              className="h-[42vh] min-h-[300px] w-full rounded-2xl border border-white/10 bg-black object-cover md:h-[68vh]"
+              className={`w-full rounded-2xl border border-white/10 bg-black object-cover transition-all duration-300 ${
+                !isMyTurn ? "h-[56vh] min-h-[340px] md:h-[70vh]" : "h-[36vh] min-h-[240px] md:h-[52vh]"
+              }`}
             />
           </section>
 
@@ -430,15 +492,12 @@ export default function MatchPage() {
             <div
               className="h-full rounded-full bg-gradient-to-r from-orange-600 via-orange-400 to-amber-200 transition-all"
               style={{
-                width: `${Math.max(
-                  0,
-                  Math.min(100, ((TOTAL_SECONDS - timer) / TOTAL_SECONDS) * 100)
-                )}%`,
+                width: `${turnProgress}%`,
               }}
             />
           </div>
           <p className="arena-subtle mt-2 text-center text-[10px] uppercase tracking-[0.24em]">
-            Roast meter
+            Turn timer ({turnSecondsRemaining}s left)
           </p>
         </div>
       </div>
