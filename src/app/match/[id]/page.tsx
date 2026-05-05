@@ -112,7 +112,7 @@ export default function MatchPage() {
     const match = matchRef.current;
     if (!match || !userId || !params.id) {
       const winnerFallback = Math.random() > 0.5 ? "you" : "opponent";
-      router.replace(`/result?winner=${winnerFallback}`);
+      router.replace(`/match/${params.id}/result?winner=${winnerFallback}`);
       return;
     }
 
@@ -130,20 +130,35 @@ export default function MatchPage() {
         const data = (await response.json()) as {
           winnerUserId?: string;
           loserUserId?: string;
-          winnerElo?: number;
-          loserElo?: number;
+          winnerEloBefore?: number;
+          winnerEloAfter?: number;
+          loserEloBefore?: number;
+          loserEloAfter?: number;
           winnerRank?: string;
           loserRank?: string;
         };
 
         if (!response.ok) {
-          router.replace(`/result?winner=${winnerPerspective}`);
+          router.replace(`/match/${params.id}/result?winner=${winnerPerspective}`);
           return;
         }
 
-        const yourElo = data.winnerUserId === userId ? data.winnerElo : data.loserElo;
-        const opponentElo =
-          data.winnerUserId === userId ? data.loserElo : data.winnerElo;
+        const yourEloBefore =
+          data.winnerUserId === userId
+            ? data.winnerEloBefore
+            : data.loserEloBefore;
+        const yourEloAfter =
+          data.winnerUserId === userId
+            ? data.winnerEloAfter
+            : data.loserEloAfter;
+        const opponentEloBefore =
+          data.winnerUserId === userId
+            ? data.loserEloBefore
+            : data.winnerEloBefore;
+        const opponentEloAfter =
+          data.winnerUserId === userId
+            ? data.loserEloAfter
+            : data.winnerEloAfter;
         const yourRank =
           data.winnerUserId === userId ? data.winnerRank : data.loserRank;
         const opponentRank =
@@ -151,15 +166,23 @@ export default function MatchPage() {
 
         const query = new URLSearchParams({
           winner: winnerPerspective,
-          yourElo: String(yourElo ?? ""),
-          opponentElo: String(opponentElo ?? ""),
+          winnerId: data.winnerUserId ?? "",
+          loserId: data.loserUserId ?? "",
+          winnerEloBefore: String(data.winnerEloBefore ?? ""),
+          winnerEloAfter: String(data.winnerEloAfter ?? ""),
+          loserEloBefore: String(data.loserEloBefore ?? ""),
+          loserEloAfter: String(data.loserEloAfter ?? ""),
+          yourEloBefore: String(yourEloBefore ?? ""),
+          yourEloAfter: String(yourEloAfter ?? ""),
+          opponentEloBefore: String(opponentEloBefore ?? ""),
+          opponentEloAfter: String(opponentEloAfter ?? ""),
           yourRank: yourRank ?? "",
           opponentRank: opponentRank ?? "",
         });
 
-        router.replace(`/result?${query.toString()}`);
+        router.replace(`/match/${params.id}/result?${query.toString()}`);
       } catch {
-        router.replace(`/result?winner=${winnerPerspective}`);
+        router.replace(`/match/${params.id}/result?winner=${winnerPerspective}`);
       }
     })();
   }, [params.id, router, teardownConnection, userId]);
