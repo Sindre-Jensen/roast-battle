@@ -11,6 +11,8 @@ type MatchRow = {
   user_a: string;
   user_b: string;
   status: string;
+  winner_user_id?: string | null;
+  created_at?: string;
 };
 
 type SignalPayload = {
@@ -43,7 +45,9 @@ export default function MatchPage() {
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const matchRef = useRef<MatchRow | null>(null);
+  const matchStartedAtMsRef = useRef<number | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const statusChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const battleEndedRef = useRef(false);
 
   const userId = useMemo(() => {
@@ -84,6 +88,10 @@ export default function MatchPage() {
     if (channelRef.current) {
       void supabase.removeChannel(channelRef.current);
       channelRef.current = null;
+    }
+    if (statusChannelRef.current) {
+      void supabase.removeChannel(statusChannelRef.current);
+      statusChannelRef.current = null;
     }
   }, []);
 
@@ -235,8 +243,24 @@ export default function MatchPage() {
 
         const match = matchData.match;
         matchRef.current = match;
+        const parsedCreatedAt = match.created_at ? Date.parse(match.created_at) : NaN;
+        if (Number.isFinite(parsedCreatedAt)) {
+          matchStartedAtMsRef.current = parsedCreatedAt;
+          const elapsedSeconds = Math.floor((Date.now() - parsedCreatedAt) / 1000);
+          const syncedRemaining = Math.max(0, TOTAL_SECONDS - elapsedSeconds);
+          setTimer(syncedRemaining);
+        }
         if (match.user_a !== userId && match.user_b !== userId) {
           throw new Error("You are not part of this match");
+        }
+
+        if (match.status === "ended") {
+          const endedWinnerPerspective =
+            match.winner_user_id && match.winner_user_id === userId
+              ? "you"
+              : "opponent";
+          router.replace(`/match/${params.id}/result?winner=${endedWinnerPerspective}`);
+          return;
         }
 
         const isInitiator = match.user_a === userId;
@@ -269,6 +293,33 @@ export default function MatchPage() {
 
         const channel = supabase.channel(`match-signal-${params.id}`);
         channelRef.current = channel;
+
+        const statusChannel = supabase
+          .channel(`match-status-${params.id}`)
+          .on(
+            "postgres_changes",
+            {
+              event: "UPDATE",
+              schema: "public",
+              table: "matches",
+              filter: `id=eq.${params.id}`,
+            },
+            (payload) => {
+              const updated = payload.new as MatchRow;
+              if (updated.status !== "ended" || battleEndedRef.current) {
+                return;
+              }
+              battleEndedRef.current = true;
+              teardownConnection();
+              const endedWinnerPerspective =
+                updated.winner_user_id && updated.winner_user_id === userId
+                  ? "you"
+                  : "opponent";
+              router.replace(`/match/${params.id}/result?winner=${endedWinnerPerspective}`);
+            }
+          )
+          .subscribe();
+        statusChannelRef.current = statusChannel;
 
         channel.on("broadcast", { event: "signal" }, async (event) => {
           const payload = event.payload as SignalPayload;
@@ -384,15 +435,20 @@ export default function MatchPage() {
 
   useEffect(() => {
     const countdown = window.setInterval(() => {
-      setTimer((prev) => {
-        if (prev <= 1) {
-          window.clearInterval(countdown);
-          endBattle();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+      const startedAtMs = matchStartedAtMsRef.current;
+      if (!startedAtMs) {
+        return;
+      }
+
+      const elapsedSeconds = Math.floor((Date.now() - startedAtMs) / 1000);
+      const remaining = Math.max(0, TOTAL_SECONDS - elapsedSeconds);
+      setTimer(remaining);
+
+      if (remaining <= 0) {
+        window.clearInterval(countdown);
+        endBattle();
+      }
+    }, 250);
 
     return () => {
       window.clearInterval(countdown);

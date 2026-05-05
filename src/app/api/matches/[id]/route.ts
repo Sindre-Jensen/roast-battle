@@ -32,7 +32,7 @@ export async function GET(
     const { id } = await params;
     const { data, error } = await supabaseServer
       .from("matches")
-      .select("id, user_a, user_b, status")
+      .select("id, user_a, user_b, status, winner_user_id, created_at")
       .eq("id", id)
       .single();
 

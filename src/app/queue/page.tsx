@@ -15,6 +15,7 @@ type MatchPayload = {
 export default function QueuePage() {
   const router = useRouter();
   const [status, setStatus] = useState("Finding opponent...");
+  const [isCancelling, setIsCancelling] = useState(false);
   const hasMatchedRef = useRef(false);
   const userId = useMemo(() => {
     if (typeof window === "undefined") {
@@ -120,6 +121,24 @@ export default function QueuePage() {
     };
   }, [router, userId]);
 
+  async function cancelQueue() {
+    if (!userId || isCancelling) {
+      return;
+    }
+
+    setIsCancelling(true);
+    try {
+      await fetch("/api/queue/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+    } finally {
+      hasMatchedRef.current = true;
+      router.replace("/");
+    }
+  }
+
   return (
     <main className="arena-bg px-4 py-8 text-zinc-100">
       <div className="arena-shell text-center">
@@ -138,6 +157,16 @@ export default function QueuePage() {
           <p className="arena-subtle mt-6 text-sm">
             Stay ready. Match will auto-start as soon as another player joins.
           </p>
+          <button
+            type="button"
+            onClick={() => {
+              void cancelQueue();
+            }}
+            disabled={isCancelling}
+            className="mt-6 inline-flex w-full items-center justify-center rounded-xl border border-white/25 bg-white/10 px-5 py-3 text-sm font-bold uppercase tracking-[0.08em] text-zinc-100 transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isCancelling ? "Cancelling..." : "Cancel Queue"}
+          </button>
         </div>
       </div>
     </main>
