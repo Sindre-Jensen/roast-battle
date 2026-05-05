@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { insertUserIntoQueue, runFifoMatchmaking } from "@/lib/matchmaking";
-import { supabase } from "@/lib/supabase";
+import { assertSupabaseEnv, supabase } from "@/lib/supabase";
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
@@ -19,6 +19,8 @@ function getErrorMessage(error: unknown) {
 
 export async function POST(request: Request) {
   try {
+    assertSupabaseEnv();
+
     const body = (await request.json()) as { userId?: string };
     const userId = body.userId?.trim();
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { assertSupabaseEnv, supabase } from "@/lib/supabase";
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
@@ -21,6 +21,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    assertSupabaseEnv();
+
     const { id } = await params;
     const { data, error } = await supabase
       .from("matches")
