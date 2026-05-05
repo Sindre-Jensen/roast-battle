@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-const ACTIVE_QUEUE_WINDOW_SECONDS = 20;
+const ACTIVE_QUEUE_WINDOW_SECONDS = 10;
 
 export type QueueRow = {
   id: string;
@@ -81,6 +81,26 @@ export async function createMatchAndMarkUsersMatched(
   userA: string,
   userB: string
 ) {
+  const activeCutoff = new Date(
+    Date.now() - ACTIVE_QUEUE_WINDOW_SECONDS * 1000
+  ).toISOString();
+
+  const { data: claimedUsers, error: claimError } = await supabase
+    .from("queue")
+    .update({ status: "matched" })
+    .in("id", [userA, userB])
+    .eq("status", "waiting")
+    .gte("created_at", activeCutoff)
+    .select("id");
+
+  if (claimError) {
+    throw claimError;
+  }
+
+  if ((claimedUsers ?? []).length < 2) {
+    return null;
+  }
+
   const { data: inserted, error: insertError } = await supabase
     .from("matches")
     .insert({
@@ -92,16 +112,16 @@ export async function createMatchAndMarkUsersMatched(
     .single();
 
   if (insertError) {
+    const { error: rollbackError } = await supabase
+      .from("queue")
+      .update({ status: "waiting" })
+      .in("id", [userA, userB]);
+
+    if (rollbackError) {
+      throw rollbackError;
+    }
+
     throw insertError;
-  }
-
-  const { error: updateError } = await supabase
-    .from("queue")
-    .update({ status: "matched" })
-    .in("id", [userA, userB]);
-
-  if (updateError) {
-    throw updateError;
   }
 
   return inserted as MatchRow;

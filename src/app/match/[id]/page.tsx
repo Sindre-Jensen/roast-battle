@@ -38,6 +38,7 @@ export default function MatchPage() {
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
+  const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const matchRef = useRef<MatchRow | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const battleEndedRef = useRef(false);
@@ -75,10 +76,29 @@ export default function MatchPage() {
 
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
+    pendingIceCandidatesRef.current = [];
 
     if (channelRef.current) {
       void supabase.removeChannel(channelRef.current);
       channelRef.current = null;
+    }
+  }, []);
+
+  const flushPendingIceCandidates = useCallback(async () => {
+    const peer = peerRef.current;
+    if (!peer || !peer.remoteDescription) {
+      return;
+    }
+
+    const pending = pendingIceCandidatesRef.current;
+    pendingIceCandidatesRef.current = [];
+
+    for (const candidate of pending) {
+      try {
+        await peer.addIceCandidate(candidate);
+      } catch {
+        // Ignore invalid or stale ICE candidates from old peer states.
+      }
     }
   }, []);
 
@@ -157,6 +177,7 @@ export default function MatchPage() {
 
           if (payload.type === "offer" && payload.sdp) {
             await peerRef.current.setRemoteDescription(payload.sdp);
+            await flushPendingIceCandidates();
             const answer = await peerRef.current.createAnswer();
             await peerRef.current.setLocalDescription(answer);
             await channel.send({
@@ -172,11 +193,20 @@ export default function MatchPage() {
 
           if (payload.type === "answer" && payload.sdp) {
             await peerRef.current.setRemoteDescription(payload.sdp);
+            await flushPendingIceCandidates();
             setStatus("Opponent connected. Battle on!");
           }
 
           if (payload.type === "ice" && payload.candidate) {
-            await peerRef.current.addIceCandidate(payload.candidate);
+            if (peerRef.current.remoteDescription) {
+              try {
+                await peerRef.current.addIceCandidate(payload.candidate);
+              } catch {
+                // Ignore invalid or stale ICE candidates from old peer states.
+              }
+            } else {
+              pendingIceCandidatesRef.current.push(payload.candidate);
+            }
           }
         });
 
@@ -227,7 +257,7 @@ export default function MatchPage() {
       mounted = false;
       teardownConnection();
     };
-  }, [params.id, teardownConnection, userId]);
+  }, [flushPendingIceCandidates, params.id, teardownConnection, userId]);
 
   useEffect(() => {
     const match = matchRef.current;

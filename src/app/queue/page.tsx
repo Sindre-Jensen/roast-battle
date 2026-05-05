@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getOrCreateUserId } from "@/lib/user-id";
@@ -15,6 +15,7 @@ type MatchPayload = {
 export default function QueuePage() {
   const router = useRouter();
   const [status, setStatus] = useState("Finding opponent...");
+  const hasMatchedRef = useRef(false);
   const userId = useMemo(() => {
     if (typeof window === "undefined") {
       return "";
@@ -30,29 +31,41 @@ export default function QueuePage() {
     let active = true;
 
     async function joinAndTryMatch() {
-      const response = await fetch("/api/matchmake", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-
-      const data = (await response.json()) as {
-        matched?: boolean;
-        match?: MatchPayload | null;
-        error?: string;
-      };
-
-      if (!active) {
+      if (hasMatchedRef.current) {
         return;
       }
 
-      if (!response.ok) {
-        setStatus(data.error ?? "Could not join queue. Retrying...");
-        return;
-      }
+      try {
+        const response = await fetch("/api/matchmake", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId }),
+        });
 
-      if (data.match?.id) {
-        router.replace(`/match/${data.match.id}?u=${encodeURIComponent(userId)}`);
+        const data = (await response.json()) as {
+          matched?: boolean;
+          match?: MatchPayload | null;
+          error?: string;
+        };
+
+        if (!active || hasMatchedRef.current) {
+          return;
+        }
+
+        if (!response.ok) {
+          setStatus(data.error ?? "Could not join queue. Retrying...");
+          return;
+        }
+
+        if (data.match?.id) {
+          hasMatchedRef.current = true;
+          router.replace(`/match/${data.match.id}?u=${encodeURIComponent(userId)}`);
+        }
+      } catch {
+        if (!active || hasMatchedRef.current) {
+          return;
+        }
+        setStatus("Network issue while matchmaking. Retrying...");
       }
     }
 
@@ -69,7 +82,11 @@ export default function QueuePage() {
           filter: `user_a=eq.${userId}`,
         },
         (payload) => {
+          if (hasMatchedRef.current) {
+            return;
+          }
           const row = payload.new as MatchPayload;
+          hasMatchedRef.current = true;
           router.replace(`/match/${row.id}?u=${encodeURIComponent(userId)}`);
         }
       )
@@ -82,7 +99,11 @@ export default function QueuePage() {
           filter: `user_b=eq.${userId}`,
         },
         (payload) => {
+          if (hasMatchedRef.current) {
+            return;
+          }
           const row = payload.new as MatchPayload;
+          hasMatchedRef.current = true;
           router.replace(`/match/${row.id}?u=${encodeURIComponent(userId)}`);
         }
       )

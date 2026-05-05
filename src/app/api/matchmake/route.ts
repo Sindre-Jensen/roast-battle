@@ -31,15 +31,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // If a user explicitly re-queues, previous active matches should not be reused.
-    const { error: closeOldMatchesError } = await supabase
+    // If user already has an active match, keep returning it during polling.
+    const { data: existingActiveMatch, error: existingActiveMatchError } = await supabase
       .from("matches")
-      .update({ status: "ended" })
+      .select("id, user_a, user_b, status")
       .or(`user_a.eq.${userId},user_b.eq.${userId}`)
-      .eq("status", "active");
+      .eq("status", "active")
+      .limit(1)
+      .maybeSingle();
 
-    if (closeOldMatchesError) {
-      throw closeOldMatchesError;
+    if (existingActiveMatchError) {
+      throw existingActiveMatchError;
+    }
+
+    if (existingActiveMatch) {
+      return NextResponse.json({ matched: true, match: existingActiveMatch });
     }
 
     await insertUserIntoQueue(userId);
