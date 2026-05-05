@@ -1,15 +1,23 @@
  "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { getOrCreateUserId } from "@/lib/user-id";
 
 export default function Home() {
   const [elo, setElo] = useState<number | null>(null);
   const [rank, setRank] = useState<string>("");
-  const userId = useMemo(() => getOrCreateUserId(), []);
+  const [userId, setUserId] = useState<string>("");
 
   useEffect(() => {
+    setUserId(getOrCreateUserId());
+  }, []);
+
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
     let cancelled = false;
 
     async function loadProfile() {
