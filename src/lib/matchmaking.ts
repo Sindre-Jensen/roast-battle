@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabaseServer } from "./supabase";
 import { DEFAULT_ELO } from "./elo";
 
 const ACTIVE_QUEUE_WINDOW_SECONDS = 10;
@@ -17,7 +17,7 @@ export type MatchRow = {
 };
 
 export async function insertUserIntoQueue(userId: string) {
-  const { error: profileError } = await supabase.from("profiles").upsert(
+  const { error: profileError } = await supabaseServer.from("profiles").upsert(
     {
       id: userId,
       elo: DEFAULT_ELO,
@@ -32,7 +32,7 @@ export async function insertUserIntoQueue(userId: string) {
     throw profileError;
   }
 
-  const { error } = await supabase.from("queue").insert({
+  const { error } = await supabaseServer.from("queue").insert({
     id: userId,
     status: "waiting",
   });
@@ -42,7 +42,7 @@ export async function insertUserIntoQueue(userId: string) {
   }
 
   if (error && error.message.toLowerCase().includes("duplicate")) {
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseServer
       .from("queue")
       .update({
         status: "waiting",
@@ -62,7 +62,7 @@ export async function fetchTwoWaitingUsers() {
     Date.now() - ACTIVE_QUEUE_WINDOW_SECONDS * 1000
   ).toISOString();
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseServer
     .from("queue")
     .select("id, created_at, status")
     .eq("status", "waiting")
@@ -82,7 +82,7 @@ export async function cleanupStaleWaitingUsers() {
     Date.now() - ACTIVE_QUEUE_WINDOW_SECONDS * 1000
   ).toISOString();
 
-  const { error } = await supabase
+  const { error } = await supabaseServer
     .from("queue")
     .delete()
     .eq("status", "waiting")
@@ -101,7 +101,7 @@ export async function createMatchAndMarkUsersMatched(
     Date.now() - ACTIVE_QUEUE_WINDOW_SECONDS * 1000
   ).toISOString();
 
-  const { data: claimedUsers, error: claimError } = await supabase
+  const { data: claimedUsers, error: claimError } = await supabaseServer
     .from("queue")
     .update({ status: "matched" })
     .in("id", [userA, userB])
@@ -117,7 +117,7 @@ export async function createMatchAndMarkUsersMatched(
     return null;
   }
 
-  const { data: inserted, error: insertError } = await supabase
+  const { data: inserted, error: insertError } = await supabaseServer
     .from("matches")
     .insert({
       user_a: userA,
@@ -128,7 +128,7 @@ export async function createMatchAndMarkUsersMatched(
     .single();
 
   if (insertError) {
-    const { error: rollbackError } = await supabase
+    const { error: rollbackError } = await supabaseServer
       .from("queue")
       .update({ status: "waiting" })
       .in("id", [userA, userB]);
@@ -154,7 +154,7 @@ export async function runFifoMatchmaking() {
 
   const [first, second] = waiting;
 
-  const { data: stillWaiting, error: guardError } = await supabase
+  const { data: stillWaiting, error: guardError } = await supabaseServer
     .from("queue")
     .select("id")
     .in("id", [first.id, second.id])

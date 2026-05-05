@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { insertUserIntoQueue, runFifoMatchmaking } from "@/lib/matchmaking";
-import { assertSupabaseEnv, supabase } from "@/lib/supabase";
+import {
+  assertSupabaseEnv,
+  assertSupabaseServiceRoleEnv,
+  supabaseServer,
+} from "@/lib/supabase";
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
@@ -20,6 +24,7 @@ function getErrorMessage(error: unknown) {
 export async function POST(request: Request) {
   try {
     assertSupabaseEnv();
+    assertSupabaseServiceRoleEnv();
 
     const body = (await request.json()) as { userId?: string };
     const userId = body.userId?.trim();
@@ -32,11 +37,13 @@ export async function POST(request: Request) {
     }
 
     // If user already has an active match, keep returning it during polling.
-    const { data: existingActiveMatch, error: existingActiveMatchError } = await supabase
+    const { data: existingActiveMatch, error: existingActiveMatchError } =
+      await supabaseServer
       .from("matches")
-      .select("id, user_a, user_b, status")
+      .select("id, user_a, user_b, status, created_at")
       .or(`user_a.eq.${userId},user_b.eq.${userId}`)
       .eq("status", "active")
+      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -45,7 +52,25 @@ export async function POST(request: Request) {
     }
 
     if (existingActiveMatch) {
-      return NextResponse.json({ matched: true, match: existingActiveMatch });
+      const createdAtRaw = (existingActiveMatch as { created_at?: string }).created_at;
+      const createdAtMs = createdAtRaw ? Date.parse(createdAtRaw) : NaN;
+      const isRecentActiveMatch =
+        Number.isFinite(createdAtMs) && Date.now() - createdAtMs < 3 * 60 * 1000;
+
+      if (isRecentActiveMatch) {
+        return NextResponse.json({ matched: true, match: existingActiveMatch });
+      }
+
+      // Auto-expire stale active matches to avoid ghost rejoin loops.
+      const { error: staleCloseError } = await supabaseServer
+        .from("matches")
+        .update({ status: "ended" })
+        .eq("id", existingActiveMatch.id)
+        .eq("status", "active");
+
+      if (staleCloseError) {
+        throw staleCloseError;
+      }
     }
 
     await insertUserIntoQueue(userId);

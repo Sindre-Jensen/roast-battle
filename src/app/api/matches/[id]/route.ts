@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { assertSupabaseEnv, supabase } from "@/lib/supabase";
+import {
+  assertSupabaseEnv,
+  assertSupabaseServiceRoleEnv,
+  supabaseServer,
+} from "@/lib/supabase";
 import { DEFAULT_ELO, getNewElo, getRank } from "@/lib/elo";
 
 function getErrorMessage(error: unknown) {
@@ -23,9 +27,10 @@ export async function GET(
 ) {
   try {
     assertSupabaseEnv();
+    assertSupabaseServiceRoleEnv();
 
     const { id } = await params;
-    const { data, error } = await supabase
+    const { data, error } = await supabaseServer
       .from("matches")
       .select("id, user_a, user_b, status")
       .eq("id", id)
@@ -61,6 +66,7 @@ export async function POST(
 ) {
   try {
     assertSupabaseEnv();
+    assertSupabaseServiceRoleEnv();
 
     const body = (await request.json()) as { winnerUserId?: string };
     const winnerUserId = body.winnerUserId?.trim();
@@ -72,7 +78,7 @@ export async function POST(
     }
 
     const { id } = await params;
-    const { data: match, error: matchError } = await supabase
+    const { data: match, error: matchError } = await supabaseServer
       .from("matches")
       .select("id, user_a, user_b, status, winner_user_id")
       .eq("id", id)
@@ -91,7 +97,7 @@ export async function POST(
 
     const loserUserId = winnerUserId === match.user_a ? match.user_b : match.user_a;
 
-    const { error: ensureProfilesError } = await supabase.from("profiles").upsert(
+    const { error: ensureProfilesError } = await supabaseServer.from("profiles").upsert(
       [
         { id: winnerUserId, elo: DEFAULT_ELO },
         { id: loserUserId, elo: DEFAULT_ELO },
@@ -103,7 +109,7 @@ export async function POST(
       throw ensureProfilesError;
     }
 
-    const { data: finalized, error: finalizeError } = await supabase
+    const { data: finalized, error: finalizeError } = await supabaseServer
       .from("matches")
       .update({
         status: "ended",
@@ -119,7 +125,7 @@ export async function POST(
     }
 
     if (finalized) {
-      const { data: currentProfiles, error: profilesError } = await supabase
+      const { data: currentProfiles, error: profilesError } = await supabaseServer
         .from("profiles")
         .select("id, elo")
         .in("id", [winnerUserId, loserUserId]);
@@ -140,7 +146,7 @@ export async function POST(
       const winnerElo = getNewElo(winnerCurrentElo, true);
       const loserElo = getNewElo(loserCurrentElo, false);
 
-      const { error: winnerUpdateError } = await supabase
+      const { error: winnerUpdateError } = await supabaseServer
         .from("profiles")
         .update({ elo: winnerElo })
         .eq("id", winnerUserId);
@@ -149,7 +155,7 @@ export async function POST(
         throw winnerUpdateError;
       }
 
-      const { error: loserUpdateError } = await supabase
+      const { error: loserUpdateError } = await supabaseServer
         .from("profiles")
         .update({ elo: loserElo })
         .eq("id", loserUserId);
@@ -171,7 +177,7 @@ export async function POST(
       });
     }
 
-    const { data: endedMatch, error: endedMatchError } = await supabase
+    const { data: endedMatch, error: endedMatchError } = await supabaseServer
       .from("matches")
       .select("id, user_a, user_b, status, winner_user_id")
       .eq("id", id)
@@ -189,7 +195,7 @@ export async function POST(
         ? endedMatch.user_b
         : endedMatch.user_a;
 
-    const { data: endedProfiles, error: endedProfilesError } = await supabase
+    const { data: endedProfiles, error: endedProfilesError } = await supabaseServer
       .from("profiles")
       .select("id, elo")
       .in("id", [endedMatch.winner_user_id, endedLoserUserId]);

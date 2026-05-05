@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { DEFAULT_ELO, getRank } from "@/lib/elo";
-import { assertSupabaseEnv, supabase } from "@/lib/supabase";
+import {
+  assertSupabaseEnv,
+  assertSupabaseServiceRoleEnv,
+  supabaseServer,
+} from "@/lib/supabase";
 
 export async function GET(
   _request: Request,
@@ -8,9 +12,10 @@ export async function GET(
 ) {
   try {
     assertSupabaseEnv();
+    assertSupabaseServiceRoleEnv();
     const { id } = await params;
 
-    const { error: upsertError } = await supabase
+    const { error: upsertError } = await supabaseServer
       .from("profiles")
       .upsert({ id, elo: DEFAULT_ELO }, { onConflict: "id", ignoreDuplicates: true });
 
@@ -18,7 +23,7 @@ export async function GET(
       throw upsertError;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseServer
       .from("profiles")
       .select("id, elo")
       .eq("id", id)
