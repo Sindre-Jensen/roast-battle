@@ -109,9 +109,60 @@ export default function MatchPage() {
     battleEndedRef.current = true;
     teardownConnection();
 
-    const winner = Math.random() > 0.5 ? "you" : "opponent";
-    router.replace(`/result?winner=${winner}`);
-  }, [router, teardownConnection]);
+    const match = matchRef.current;
+    if (!match || !userId || !params.id) {
+      const winnerFallback = Math.random() > 0.5 ? "you" : "opponent";
+      router.replace(`/result?winner=${winnerFallback}`);
+      return;
+    }
+
+    const winnerUserId = Math.random() > 0.5 ? userId : match.user_a === userId ? match.user_b : match.user_a;
+    const winnerPerspective = winnerUserId === userId ? "you" : "opponent";
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/matches/${params.id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ winnerUserId }),
+        });
+
+        const data = (await response.json()) as {
+          winnerUserId?: string;
+          loserUserId?: string;
+          winnerElo?: number;
+          loserElo?: number;
+          winnerRank?: string;
+          loserRank?: string;
+        };
+
+        if (!response.ok) {
+          router.replace(`/result?winner=${winnerPerspective}`);
+          return;
+        }
+
+        const yourElo = data.winnerUserId === userId ? data.winnerElo : data.loserElo;
+        const opponentElo =
+          data.winnerUserId === userId ? data.loserElo : data.winnerElo;
+        const yourRank =
+          data.winnerUserId === userId ? data.winnerRank : data.loserRank;
+        const opponentRank =
+          data.winnerUserId === userId ? data.loserRank : data.winnerRank;
+
+        const query = new URLSearchParams({
+          winner: winnerPerspective,
+          yourElo: String(yourElo ?? ""),
+          opponentElo: String(opponentElo ?? ""),
+          yourRank: yourRank ?? "",
+          opponentRank: opponentRank ?? "",
+        });
+
+        router.replace(`/result?${query.toString()}`);
+      } catch {
+        router.replace(`/result?winner=${winnerPerspective}`);
+      }
+    })();
+  }, [params.id, router, teardownConnection, userId]);
 
   useEffect(() => {
     if (!userId || !params.id) {

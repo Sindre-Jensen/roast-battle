@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { DEFAULT_ELO } from "./elo";
 
 const ACTIVE_QUEUE_WINDOW_SECONDS = 10;
 
@@ -16,6 +17,21 @@ export type MatchRow = {
 };
 
 export async function insertUserIntoQueue(userId: string) {
+  const { error: profileError } = await supabase.from("profiles").upsert(
+    {
+      id: userId,
+      elo: DEFAULT_ELO,
+    },
+    {
+      onConflict: "id",
+      ignoreDuplicates: true,
+    }
+  );
+
+  if (profileError) {
+    throw profileError;
+  }
+
   const { error } = await supabase.from("queue").insert({
     id: userId,
     status: "waiting",
